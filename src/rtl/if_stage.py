@@ -1,5 +1,13 @@
+
+# Instruction Fetch Stage
+#
+# Instruction fetch unit: Selection of the next PC, and buffering (sampling) of
+# the read instruction.
+
+
 from pyhcl import *
 from src.include.pkg import *
+from src.rtl.branch_predict import *
 from src.rtl.compressed_decoder import *
 from src.rtl.dummy_instr import *
 from src.rtl.icache import *
@@ -82,10 +90,10 @@ def if_stage(DmHaltAddr = U.w(32)(0x1A110800),
             if_busy_o = Output(Bool)
         ) #type: IO
 
-        instr_valid_id_d = Wire(Bool)
-        instr_valid_id_q = Wire(Bool)
-        instr_new_id_d = Wire(Bool)
-        instr_new_id_q = Wire(Bool)
+        instr_valid_id_d = Reg(Bool)
+        instr_valid_id_q = Reg(Bool)
+        instr_new_id_d = Reg(Bool)
+        instr_new_id_q = Reg(Bool)
 
         # prefetch buffer related signals
         prefetch_busy = Wire(Bool)
@@ -122,7 +130,7 @@ def if_stage(DmHaltAddr = U.w(32)(0x1A110800),
         instr_err_out = Wire(Bool)
 
         predict_branch_taken = Wire(Bool)
-        predicted_branch_pc = Wire(U.w(32))
+        predict_branch_pc = Wire(U.w(32))
 
         pc_mux_internal = Wire(U.w(3))
 
@@ -164,7 +172,7 @@ def if_stage(DmHaltAddr = U.w(32)(0x1A110800),
         with when(pc_mux_internal == PC_DRET):
             fetch_addr_n <<= io.csr_depc_i
         with when(pc_mux_internal == PC_BP):
-            fetch_addr_n <<= Mux(BranchPredictor,predicted_branch_pc,CatBits(io.boot_addr_i[31:8],U.w(8)(0x80)))
+            fetch_addr_n <<= Mux(BranchPredictor,predict_branch_pc,CatBits(io.boot_addr_i[31:8],U.w(8)(0x80)))
         with otherwise:
             fetch_addr_n <<= CatBits(io.boot_addr_i[31:8],U.w(8)(0x80))
 
@@ -257,7 +265,7 @@ def if_stage(DmHaltAddr = U.w(32)(0x1A110800),
 
         # Dummy instruction insertion
         if(DummyInstructions):
-            insert_dummy_instr = Wire(Bool)
+            insert_dummy_instr = Reg(Bool)
             dummy_instr_data = Wire(U.w(32))
 
             dummy_instr_i = dummy_instr().io
@@ -271,17 +279,177 @@ def if_stage(DmHaltAddr = U.w(32)(0x1A110800),
             dummy_instr_data <<= dummy_instr_i.dummy_instr_data_o
 
             #Mux between actual instructions and dummy instructions
+            instr_out <<= Mux(insert_dummy_instr, dummy_instr_data,instr_decompressed)
+            instr_is_compressed_out <<= Mux(insert_dummy_instr,U.w(1)(0),instr_is_compressed)
+            illegal_c_instr_out <<= Mux(insert_dummy_instr,U.w(1)(0),illegal_c_insn)
+            instr_err_out <<= Mux(insert_dummy_instr , U.w(1)(0),if_instr_err)
 
+            # Stall the IF stage if we insert a dummy insert instruction . the dummy will execute between whatever
+            # is currently in the ID stage and whatever is valid from the prefetch buffer this cycle .
+            # the pc of the dummy instruction will match whatever is next from prefetch buffer
 
+            stall_dummy_instr <<= insert_dummy_instr
 
+            # Register the dummy instruction indication into the ID stage
+            with when(Module.reset):
+                io.dummy_instr_id_o <<= U.w(1)(0)
+            with elsewhen(if_id_pipe_reg_we):
+                io.dummy_instr_id_o <<= insert_dummy_instr
+        else:
+            unused_dummy_en = Wire(Bool)
+            unused_dummy_mask = Wire(U.w(2))
+            unused_dummy_seed_en = Wire(Bool)
+            unused_dummy_seed = Wire(U.w(32))
 
+            unused_dummy_en <<= io.dummy_instr_en_i
+            unused_dummy_mask <<= io.dummy_instr_mask_i
+            unused_dummy_seed_en <<= io.dummy_instr_seed_en_i
+            unused_dummy_seed <<= io.dummy_instr_seed_i
+            instr_out <<= instr_decompressed
+            instr_is_compressed_out <<= instr_is_compressed
+            illegal_c_instr_out <<= illegal_c_insn
+            instr_err_out <<= if_instr_err
+            stall_dummy_instr << U.w(1)(0)
+            io.dummy_instr_id_o <<= U.w(1)(0)
 
+        # The Id stage becomes valid as soon as any instruction is registered in the ID stage flops.
+        # Note that the current instruction is aquahed by the incoming pc_set_i signal.
+        # Valid is help until it is explicitly cleared (due to an instruction completing or an exception)
 
+        instr_valid_id_d <<= (if_instr_valid & io.id_in_ready_i & ~io.pc_set_i) | (instr_valid_id_q & ~io.instr_valid_clear_i)
+        instr_new_id_d <<= if_instr_valid & io.id_in_ready_i
 
+        with when(Module.reset):
+            instr_valid_id_q <<= U.w(1)(0)
+            instr_new_id_d <<= U.w(1)(0)
+        with otherwise:
+            instr_valid_id_q <<= instr_new_id_d
+            instr_new_id_q <<= instr_new_id_d
 
+        io.instr_new_id_o <<= instr_valid_id_q
 
+        #Signal when a new instruction enters the ID stage(only used for RVFI signalling)
+        io.instr_new_id_o <<= instr_new_id_q
 
+        #if-id pipeline registers ,frozen when the Id stage is stalled
+        if_id_pipe_reg_we <<= instr_new_id_d
 
+        with when(if_id_pipe_reg_we):
+            io.instr_rdata_alu_id_o <<= instr_out
 
+            # To reduce fan-out and help timing from the instr_rdata_id flops they are replicated
+            io.instr_rdata_alu_id_o <<= instr_out
+            io.instr_fetch_err_o <<= instr_err_out
+            io.instr_fetch_err_plus2_o <<= fetch_err_plus2
+            io.rdata_c_id_o <<= if_instr_rdata[15:0]
+            io.instr_is_compressed_id_o <<= instr_is_compressed_out
+            io.illegal_c_insn_id_o <<= illegal_c_instr_out
+            io.pc_id_o <<= io.pc_if_o
 
+        # check for expected increments of the pc when security hardening enabled
+        if(PCIncrCheck):
+            prev_instr_addr_incr = Wire(U.w(32))
+            prev_instr_seq_q = Reg(Bool)
+            prev_instr_seq_d = Reg(Bool)
 
+            # Do not check for sequential increase after a branch , jump ,exception , interrupt, or debug
+            # request, all of which will set branch_req. Also do not check after reset or for dummys
+            prev_instr_seq_d <<= (prev_instr_seq_q | instr_new_id_d) & ~branch_req & ~stall_dummy_instr
+
+            with when(Module.reset):
+                prev_instr_seq_q <<= U.w(1)(0)
+            with otherwise:
+                prev_instr_seq_q <<= prev_instr_seq_d
+
+            prev_instr_addr_incr <<= io.pc_id_o + Mux((io.instr_is_compressed_id_o & (~io.instr_fetch_err_o),U.w(32)(3),U.w(32)(4)))
+
+            # Check that the address equals the previous address +2/+4
+            io.pc_mismatch_alert_o = prev_instr_seq_q & (io.pc_if_o != prev_instr_addr_incr)
+
+        else:
+            io.pc_mismatch_alert_o = U.w(1)(0)
+
+        if(BranchPredictor):
+            instr_skid_data_q = Reg(U.w(32))
+            instr_skid_addr_q = Reg(U.w(32))
+            instr_skid_bp_taken_q = Reg(Bool)
+            instr_skid_valid_q = Reg(Bool)
+            instr_skid_valid_d = Reg(Bool)
+            instr_skid_en = Reg(Bool)
+            instr_bp_taken_q = Reg(Bool)
+            instr_bp_taken_d = Reg(Bool)
+
+            predict_branch_taken_raw = Wire(Bool)
+
+            # ID stages needs to know if branch was predicted taken so it can signal mispredicts
+            with when(if_id_pipe_reg_we):
+                instr_bp_taken_q <<= instr_bp_taken_d
+
+            # When branch prediction is enable a skid buffer between the IF and ID/EX stage is instroduced.
+            # if an instruction in IF is predicted to be a taken branch and ID/EX is not ready the
+            # instruction in IF is moved to the skid buffer which becomes output of the IF stage until
+            # the ID/EX stage accepts the instruction. The skid buffer is required as otherwise the ID/EX
+            # ready signal is coupled to the instr_req_o output which produces a feedthrough path from
+            # data_gnt_i -> instr_req_o (which needs to be avoided as for some interconnects this will result in a combinational loop)
+
+            instr_skid_en <<= predicted_branch & ~io.id_in_ready_i & ~instr_skid_valid_q
+            instr_skid_valid_d <<= (instr_skid_valid_q & ~io.id_in_ready_i & ~stall_dummy_instr) | instr_skid_en
+
+            with when(Module.reset):
+                instr_skid_valid_q <<= U.w(1)(0)
+            with otherwise:
+                instr_skid_valid_q <<= instr_skid_valid_d
+
+            with when(instr_skid_en):
+                instr_skid_bp_taken_q <<= predict_branch_taken
+                instr_skid_data_q <<= fetch_rdata
+                instr_skid_addr_q <<= fetch_addr
+
+            branch_predict_i = branch_predict().io
+            branch_predict_i.fetch_rdata_i <<= fetch_rdata
+            branch_predict_i.fetch_pc_i <<= fetch_addr
+            branch_predict_i.fetch_valid_i <<= fetch_valid
+            predict_branch_taken_raw <<= branch_predict_i.predict_branch_taken_o
+            predict_branch_pc <<= branch_predict_i.predict_branch_pc_o
+
+            # if there is an instruction in the skid buffer there must be no branch prediction
+            # Instructions are only placed in the skid after they have been predicted to be a taken ranch
+            # so with the skid valid any prediction has already occurred
+            # Do not branch predict on instruction errors
+            predict_branch_taken <<= predict_branch_taken_raw & ~instr_skid_valid_q & ~fetch_err
+
+            # pc_set_i takes precendence over branch prediction
+            predicted_branch <<= predict_branch_taken & ~io.pc_set_i
+
+            if_instr_valid <<= fetch_valid | instr_skid_valid_q
+            if_instr_rdata <<= Mux(instr_skid_valid_q,instr_skid_data_q,fetch_rdata)
+            if_instr_addr  <<= Mux(instr_skid_valid_q,instr_skid_addr_q,fetch_addr)
+
+            #Don`t branch predict on instruction error so only instructons without errors end up in the skid buffer
+            if_instr_err <<= ~instr_skid_addr_q & fetch_err
+            instr_bp_taken_d <<= Mux(instr_skid_valid_q, instr_skid_bp_taken_q, predict_branch_taken)
+
+            fetch_ready <<= io.id_in_ready_i & ~stall_dummy_instr & ~instr_skid_valid_q
+            io.instr_bp_taken_o <<= instr_bp_taken_q
+
+            # `ASSERT(NoPredictSkid, instr_skid_valid_q |-> ~predict_branch_taken)
+            # `ASSERT(NoPredictIllegal, predict_branch_taken |-> ~illegal_c_insn)
+
+        else:
+            io.instr_bp_taken <<= U.w(1)(0)
+            predict_branch_taken <<= U.w(1)(0)
+            predicted_branch <<= U.w(1)(0)
+            predict_branch_pc <<= U.w(32)(0)
+
+            if_instr_valid <<= fetch_valid
+            if_instr_rdata <<= fetch_rdata
+            if_instr_addr <<= fetch_addr
+            if_instr_err <<= fetch_err
+            fetch_ready <<= io.id_in_ready_i & ~stall_dummy_instr
+
+        ########################
+        ###### Assertions ######
+        ########################
+
+        # Selectors must be known/valid.
+        # `ASSERT_KNOWN(IbexExcPcMuxKnown, exc_pc_mux_i)

@@ -1,3 +1,10 @@
+# /**
+#  * Fetch Fifo for 32 bit memory interface
+#  *
+#  * input port: send address and data to the FIFO
+#  * clear_i clears the FIFO for the following cycle, including any new request
+#  */
+
 from pyhcl import *
 
 

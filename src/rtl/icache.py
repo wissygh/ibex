@@ -1,3 +1,10 @@
+# /**
+#  * Instruction cache
+#  *
+#  * Provides an instruction cache along with cache management, instruction buffering and prefetching
+#  */
+
+
 from math import log
 
 from pyhcl import *

@@ -4,7 +4,21 @@ from enum import Enum
 
 
 
+# /////////////
+# // Opcodes //
+# /////////////
 
+OPCODE_LOAD     = U.w(7)(0x03)
+OPCODE_MISC_MEM = U.w(7)(0x0f)
+OPCODE_OP_IMM   = U.w(7)(0x13)
+OPCODE_AUIPC    = U.w(7)(0x17)
+OPCODE_STORE    = U.w(7)(0x23)
+OPCODE_OP       = U.w(7)(0x33)
+OPCODE_LUI      = U.w(7)(0x37)
+OPCODE_BRANCH   = U.w(7)(0x63)
+OPCODE_JALR     = U.w(7)(0x67)
+OPCODE_JAL      = U.w(7)(0x6f)
+OPCODE_SYST     = U.w(7)(0x73)
 
 
 

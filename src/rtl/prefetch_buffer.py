@@ -1,3 +1,10 @@
+# /**
+#  * Prefetcher Buffer for 32 bit memory interface
+#  *
+#  * Prefetch Buffer that caches instructions. This cuts overly long critical
+#  * paths to the instruction cache.
+#  */
+
 from pyhcl import *
 from src.include.pkg import *
 

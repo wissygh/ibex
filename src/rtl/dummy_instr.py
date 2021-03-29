@@ -1,5 +1,9 @@
-from pyhcl import *
 
+# Dummy instruction module
+# Provides pseudo-randomly inserted fake instruction for secure code obfuscation
+# 为安全代码混淆提供伪随机插入的伪指令
+
+from pyhcl import *
 
 def dummy_instr(
         # 函数参数
@@ -36,8 +40,8 @@ def dummy_instr(
 
         dummy_cnt_incr = Wire(U.w(TIMEOUT_CNT_W))
         dummy_cnt_threshold = Wire(U.w(TIMEOUT_CNT_W))
-        dummy_cnt_d = Wire(U.w(TIMEOUT_CNT_W))
-        dummy_cnt_q = Wire(U.w(TIMEOUT_CNT_W))
+        dummy_cnt_d = Reg(U.w(TIMEOUT_CNT_W))
+        dummy_cnt_q = Reg(U.w(TIMEOUT_CNT_W))
         dummy_cnt_en = Wire(Bool)
         lfsr_en = Wire(Bool)
         lfsr_state = Wire(U.w(LFSR_OUT_W))
@@ -78,7 +82,51 @@ def dummy_instr(
         # Set count threshold for inserting a new instruction . This is the pseudo-random value from the
         # LFSR with a mask applied (based on CSR cofig) to shorten the period if required
 
-        dummy_cnt_threshold <<= lfsr_data_cnt & CatBits(io.dummy_instr_mask_i,)
+        dummy_cnt_threshold <<= lfsr_data_cnt & CatBits(io.dummy_instr_mask_i,(TIMEOUT_CNT_W-U.w(3)(3)))
+        dummy_cnt_incr <<= dummy_cnt_q + CatBits(TIMEOUT_CNT_W - U.w(1)(0), U.w(1)(1))
+
+        #clear the counter everytime a new instruction is inserted
+        dummy_cnt_d <<= Mux(insert_dummy_instr, U.w(5)(0), dummy_cnt_incr)
+
+        #Increment the counter for each executed instruction is inserted
+        #enabled
+        dummy_cnt_en <<= io.dummy_instr_en_i & io.id_in_ready_i & (io.fetch_valid_i | insert_dummy_instr)
+
+        with when(Module.reset):
+            for i in range(TIMEOUT_CNT_W):
+              dummy_cnt_q[i] <<= 0
+        with elsewhen(dummy_cnt_en):
+            dummy_cnt_q <<= dummy_cnt_d
+
+        #insert a dummy instruction each time the counter hits the threshold
+
+        insert_dummy_instr <<= io.dummy_instr_en_i & (dummy_cnt_q == dummy_cnt_threshold)
+
+        # Encode instruction
+        with when(lfsr_data_instr_type == DUMMY_ADD):
+            dummy_set <<= U.w(7)(0)
+            dummy_opcode <<= U.w(3)(0)
+        with elsewhen(lfsr_data_instr_type == DUMMY_MUL):
+            dummy_set <<= U.w(7)(1)
+            dummy_opcode <<= U.w(3)(0)
+        with elsewhen(lfsr_data_instr_type == DUMMY_DIV):
+            dummy_set <<= U.w(7)(1)
+            dummy_opcode <<= U.w(3)(4)
+        with elsewhen(lfsr_data_instr_type == DUMMY_AND):
+            dummy_set <<= U.w(7)(0)
+            dummy_opcode <<= U.w(3)(7)
+        with otherwise:
+            dummy_set <<= U.w(7)(0)
+            dummy_opcode <<= U.w(3)(0)
+
+        #........................SET.........RS2...............RS1..........OP............RD
+        dummy_instr <<= CatBits(dummy_set, lfsr_data_op_b, lfsr_data_op_a,dummy_opcode, U.w(5)(0),U.w(7)(0x33))
+
+        #Assign outputs
+        io.insert_dummy_instr_o <<= insert_dummy_instr
+        io.dummy_instr_data_o <<= dummy_instr
+
+
 
 
 
