@@ -244,6 +244,11 @@ def icache(
         inval_index_d = Wire(U.w(INDEX_W))
         inval_index_q = Wire(U.w((INDEX_W)))
 
+        # // // // // // // // // // // // // //
+        # // Instruction prefetch //
+        # // // // // // // // // // // // // //
+
+
 
 
 

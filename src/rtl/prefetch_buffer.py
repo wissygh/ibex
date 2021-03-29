@@ -88,3 +88,20 @@ def prefetch_buffer(
         ## Prefetch buffer status
         #############################
 
+        io.busy_o <<= (rdata_outstanding_q) | io.instr_req_o
+        branch_or_mispredict <<= io.branch_i | io.branch_mispredict_i
+
+        # // // // // // // // // // // // // // // // // // // // // // // //
+        # // Fetch  fifo - consumes addresses and data //
+        # // // // // // // // // // // // // // // // // // // // // // // //
+
+        # Instruction fetch errors are valid on the data phase of request
+        # PMP errors are generated in the address phase, and registered into a fake data phase
+        instr_or_pmp_err = io.instr_err_i | rdata_pmp_err_q[0]
+
+        # A branch will invalidate any peviously fetched instrutions
+        # Note that the FENCE.I instruction relies on this flushing behaviour on branch.
+        # If it is altered the FENCE .I implementation may require changes
+        fifo_clear <<= branch_or_mispredict
+
+        #
