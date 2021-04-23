@@ -59,6 +59,19 @@ core:
             ibex_counter
         ibex_pmp
 
+模块模板
+from pyhcl import *
+def fetch_fifo(
+        # 函数参数
+
+):
+    class FETCH_FIFO(Module):
+        # 本地参数
+        io = IO(
+            # io端口
+        )
+    return FETCH_FIFO()
+
 
 传
 $ git add .
