@@ -18,3 +18,4 @@ def fetch_fifo(
             # io端口
 
         )
+    return FETCH_FIFO()

@@ -453,3 +453,5 @@ def if_stage(DmHaltAddr = U.w(32)(0x1A110800),
 
         # Selectors must be known/valid.
         # `ASSERT_KNOWN(IbexExcPcMuxKnown, exc_pc_mux_i)
+
+    return IF_STAGE()

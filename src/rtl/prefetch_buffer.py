@@ -105,3 +105,5 @@ def prefetch_buffer(
         fifo_clear <<= branch_or_mispredict
 
         #
+
+    return PREFETCH_BUFFER()

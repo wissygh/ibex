@@ -248,6 +248,7 @@ def icache(
         # // Instruction prefetch //
         # // // // // // // // // // // // // //
 
+    return ICACHE()
 
 
 

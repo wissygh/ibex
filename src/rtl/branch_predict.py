@@ -102,5 +102,5 @@ def branch_predict(
 
         pass
 
-
+    return BRANCH_PREDICT()
 

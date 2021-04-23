@@ -27,13 +27,13 @@ core:
     pkg
 
 
-    if_stage:
+    if_stage:                (over)
         ichace
         prefetch_buffer:
             fetch_fifo
-        compressed_decoder
-        dummy_instr
-        branch_predict
+        compressed_decoder    (over)
+        dummy_instr           (over)
+        branch_predict        (over)
 
     id_stage:
         decoder
@@ -58,3 +58,12 @@ core:
             ibex_csr
             ibex_counter
         ibex_pmp
+
+
+传
+$ git add .
+$ git commit -m ":memo: update"
+$ git push -u origin dev
+取
+ 在PC-1上获取PC-2更新的内容:
+  git pull origin master        #将服务器端的代码下载到本地

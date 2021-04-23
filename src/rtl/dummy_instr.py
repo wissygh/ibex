@@ -127,7 +127,7 @@ def dummy_instr(
         io.dummy_instr_data_o <<= dummy_instr
 
 
-
+    return DUMMY_INSTR()
 
 
 
